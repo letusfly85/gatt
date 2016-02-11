@@ -177,9 +177,7 @@ func (c *Characteristic) SetDescriptor(cccd *Descriptor) { c.cccd = cccd }
 func (c *Characteristic) SetDescriptors(descs []*Descriptor) { c.descs = descs }
 
 // UUID returns the UUID of the characteristic.
-func (c *Characteristic) UUID() UUID {
-	return c.uuid
-}
+func (c *Characteristic) UUID() UUID { return c.uuid }
 
 // Name returns the specificatin name of the characteristic.
 // If the UUID is not assigned, Name returns empty string.
@@ -188,19 +186,13 @@ func (c *Characteristic) Name() string {
 }
 
 // Service returns the containing service of this characteristic.
-func (c *Characteristic) Service() *Service {
-	return c.svc
-}
+func (c *Characteristic) Service() *Service { return c.svc }
 
 // Properties returns the properties of this characteristic.
-func (c *Characteristic) Properties() Property {
-	return c.props
-}
+func (c *Characteristic) Properties() Property { return c.props }
 
 // Descriptors returns the contained descriptors of this characteristic.
-func (c *Characteristic) Descriptors() []*Descriptor {
-	return c.descs
-}
+func (c *Characteristic) Descriptors() []*Descriptor { return c.descs }
 
 // AddDescriptor adds a descriptor to a characteristic.
 // AddDescriptor panics if the characteristic already contains another
@@ -242,7 +234,7 @@ func (c *Characteristic) HandleRead(h ReadHandler) {
 }
 
 // HandleReadFunc calls HandleRead(ReadHandlerFunc(f)).
-func (c *Characteristic) HandleReadFunc(f func(rsp ResponseWriter, req *Request)) {
+func (c *Characteristic) HandleReadFunc(f ReadHandlerFunc) {
 	c.HandleRead(ReadHandlerFunc(f))
 }
 
@@ -293,7 +285,7 @@ func (c *Characteristic) HandleNotify(h NotifyHandler) {
 }
 
 // HandleNotifyFunc calls HandleNotify(NotifyHandlerFunc(f)).
-func (c *Characteristic) HandleNotifyFunc(f func(r Request, n Notifier)) {
+func (c *Characteristic) HandleNotifyFunc(f NotifyHandlerFunc) {
 	c.HandleNotify(NotifyHandlerFunc(f))
 }
 
@@ -319,29 +311,18 @@ func (d *Descriptor) SetHandle(h uint16) { d.h = h }
 
 // NewDescriptor creates and returns a Descriptor.
 func NewDescriptor(u UUID, h uint16, char *Characteristic) *Descriptor {
-	cd := &Descriptor{
-		uuid: u,
-		h:    h,
-		char: char,
-	}
-	return cd
+	return &Descriptor{uuid: u, h: h, char: char}
 }
 
 // UUID returns the UUID of the descriptor.
-func (d *Descriptor) UUID() UUID {
-	return d.uuid
-}
+func (d *Descriptor) UUID() UUID { return d.uuid }
 
 // Name returns the specificatin name of the descriptor.
 // If the UUID is not assigned, returns an empty string.
-func (d *Descriptor) Name() string {
-	return knownDescriptors[d.uuid.String()].Name
-}
+func (d *Descriptor) Name() string { return knownDescriptors[d.uuid.String()].Name }
 
 // Characteristic returns the containing characteristic of the descriptor.
-func (d *Descriptor) Characteristic() *Characteristic {
-	return d.char
-}
+func (d *Descriptor) Characteristic() *Characteristic { return d.char }
 
 // SetValue makes the descriptor support read requests, and returns a static value.
 // SetValue must be called before the containing service is added to a server.
@@ -367,7 +348,7 @@ func (d *Descriptor) HandleRead(h ReadHandler) {
 }
 
 // HandleReadFunc calls HandleRead(ReadHandlerFunc(f)).
-func (d *Descriptor) HandleReadFunc(f func(rsp ResponseWriter, req *Request)) {
+func (d *Descriptor) HandleReadFunc(f ReadHandlerFunc) {
 	d.HandleRead(ReadHandlerFunc(f))
 }
 
@@ -380,6 +361,6 @@ func (d *Descriptor) HandleWrite(h WriteHandler) {
 }
 
 // HandleWriteFunc calls HandleWrite(WriteHandlerFunc(f)).
-func (d *Descriptor) HandleWriteFunc(f func(r Request, data []byte) (status byte)) {
+func (d *Descriptor) HandleWriteFunc(f WriteHandlerFunc) {
 	d.HandleWrite(WriteHandlerFunc(f))
 }
