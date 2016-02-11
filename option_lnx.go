@@ -1,11 +1,6 @@
 package gatt
 
-import (
-	"errors"
-	"io"
-
-	"github.com/currantlabs/gatt/linux/cmd"
-)
+import "github.com/currantlabs/bt/cmd"
 
 // LnxDeviceID specifies which HCI device to use.
 // If n is set to -1, all the available HCI devices will be probed.
@@ -28,21 +23,6 @@ func LnxMaxConnections(n int) Option {
 	return func(d Device) error {
 		d.(*device).maxConn = n
 		return nil
-	}
-}
-
-// LnxSetAdvertisingEnable sets the advertising data to the HCI device.
-// This option can be used with Option on Linux implementation.
-func LnxSetAdvertisingEnable(en bool) Option {
-	return func(d Device) error {
-		dd := d.(*device)
-		if dd == nil {
-			return errors.New("device is not initialized")
-		}
-		if err := dd.update(); err != nil {
-			return err
-		}
-		return dd.hci.SetAdvertiseEnable(en)
 	}
 }
 
@@ -75,13 +55,8 @@ func LnxSetAdvertisingParameters(c *cmd.LESetAdvertisingParameters) Option {
 
 // LnxSendHCIRawCommand sends a raw command to the HCI device
 // This option can be used with NewDevice or Option on Linux implementation.
-func LnxSendHCIRawCommand(c cmd.CmdParam, rsp io.Writer) Option {
+func LnxSendHCIRawCommand(c cmd.Command, r cmd.CommandRP) Option {
 	return func(d Device) error {
-		b, err := d.(*device).SendHCIRawCommand(c)
-		if rsp == nil {
-			return err
-		}
-		rsp.Write(b)
-		return err
+		return d.(*device).hci.Send(c, r)
 	}
 }

@@ -51,7 +51,7 @@ func onPeriphConnected(p gatt.Peripheral, err error) {
 	fmt.Println("Connected")
 	defer p.Device().CancelConnection(p)
 
-	if err := p.SetMTU(500); err != nil {
+	if err := p.SetMTU(512); err != nil {
 		fmt.Printf("Failed to set MTU, err: %s\n", err)
 	}
 

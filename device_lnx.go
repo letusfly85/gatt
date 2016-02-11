@@ -2,16 +2,18 @@ package gatt
 
 import (
 	"encoding/binary"
-	"net"
+	"log"
 
-	"github.com/currantlabs/gatt/linux"
-	"github.com/currantlabs/gatt/linux/cmd"
+	"github.com/currantlabs/bt"
+	"github.com/currantlabs/bt/cmd"
+	"github.com/currantlabs/bt/evt"
 )
 
 type device struct {
 	deviceHandler
 
-	hci   *linux.HCI
+	hci bt.HCI
+
 	state State
 
 	// All the following fields are only used peripheralManager (server) implementation.
@@ -26,8 +28,10 @@ type device struct {
 	scanResp  *cmd.LESetScanResponseData
 	advParam  *cmd.LESetAdvertisingParameters
 	scanParam *cmd.LESetScanParameters
+	connParam *cmd.LECreateConnection
 }
 
+// NewDevice ...
 func NewDevice(opts ...Option) (Device, error) {
 	d := &device{
 		maxConn: 1,    // Support 1 connection at a time.
@@ -35,8 +39,8 @@ func NewDevice(opts ...Option) (Device, error) {
 		chkLE:   true, // Check if the device supports LE.
 
 		advParam: &cmd.LESetAdvertisingParameters{
-			AdvertisingIntervalMin:  0x800,     // [0x0800]: 0.625 ms * 0x0800 = 1280.0 ms
-			AdvertisingIntervalMax:  0x800,     // [0x0800]: 0.625 ms * 0x0800 = 1280.0 ms
+			AdvertisingIntervalMin:  0x010,     // [0x0800]: 0.625 ms * 0x0800 = 1280.0 ms
+			AdvertisingIntervalMax:  0x010,     // [0x0800]: 0.625 ms * 0x0800 = 1280.0 ms
 			AdvertisingType:         0x00,      // [0x00]: ADV_IND, 0x01: DIRECT(HIGH), 0x02: SCAN, 0x03: NONCONN, 0x04: DIRECT(LOW)
 			OwnAddressType:          0x00,      // [0x00]: public, 0x01: random
 			DirectAddressType:       0x00,      // [0x00]: public, 0x01: random
@@ -51,10 +55,23 @@ func NewDevice(opts ...Option) (Device, error) {
 			OwnAddressType:       0x00,   // [0x00]: public, 0x01: random
 			ScanningFilterPolicy: 0x00,   // [0x00]: accept all, 0x01: ignore non-white-listed.
 		},
+		connParam: &cmd.LECreateConnection{
+			LEScanInterval:        0x0004, // N x 0.625ms
+			LEScanWindow:          0x0004, // N x 0.625ms
+			InitiatorFilterPolicy: 0x00,   // white list not used
+			OwnAddressType:        0x00,   // public
+			ConnIntervalMin:       0x0006, // N x 0.125ms
+			ConnIntervalMax:       0x0006, // N x 0.125ms
+			ConnLatency:           0x0000, //
+			SupervisionTimeout:    0x0048, // N x 10ms
+			MinimumCELength:       0x0000, // N x 0.625ms
+			MaximumCELength:       0x0000, // N x 0.625ms
+			// PeerAddressType:       pd.AddressType, // public or random
+			// PeerAddress:           pd.Address,     //
+		},
 	}
 
-	d.Option(opts...)
-	h, err := linux.NewHCI(d.devID, d.chkLE, d.maxConn)
+	h, err := bt.NewHCI(d.devID, d.chkLE)
 	if err != nil {
 		return nil, err
 	}
@@ -63,48 +80,110 @@ func NewDevice(opts ...Option) (Device, error) {
 	return d, nil
 }
 
+func (d *device) acceptLoop() {
+	for {
+		l2c, err := d.hci.Accept()
+		if err != nil {
+			log.Fatalf("can't accept conn: %s", err)
+		}
+		if l2c.Parameters().Role == 0x01 {
+			d.handleCentral(l2c)
+			continue
+		}
+		d.handlePeripheral(l2c)
+	}
+}
+
+func (d *device) handleCentral(l2c bt.Conn) {
+	c := newCentral(d.attrs, l2c)
+	if d.centralConnected != nil {
+		d.centralConnected(c)
+	}
+	c.loop()
+	if d.centralDisconnected != nil {
+		d.centralDisconnected(c)
+	}
+	d.hci.Send(&cmd.LESetAdvertiseEnable{AdvertisingEnable: 1}, nil)
+}
+
+func (d *device) handlePeripheral(l2c bt.Conn) {
+	p := newPeripheral(d, l2c)
+	if d.peripheralConnected != nil {
+		go d.peripheralConnected(p, nil)
+	}
+	p.c.Loop()
+	if d.peripheralDisconnected != nil {
+		d.peripheralDisconnected(p, nil)
+	}
+}
 func (d *device) Init(f func(Device, State)) error {
-	d.hci.AcceptMasterHandler = func(pd *linux.PlatData) {
-		a := pd.Address
-		c := newCentral(d.attrs, net.HardwareAddr([]byte{a[5], a[4], a[3], a[2], a[1], a[0]}), pd.Conn)
-		if d.centralConnected != nil {
-			d.centralConnected(c)
-		}
-		c.loop()
-		if d.centralDisconnected != nil {
-			d.centralDisconnected(c)
-		}
-	}
-	d.hci.AcceptSlaveHandler = func(pd *linux.PlatData) {
-		p := &peripheral{
-			d:     d,
-			pd:    pd,
-			l2c:   pd.Conn,
-			reqc:  make(chan message),
-			quitc: make(chan struct{}),
-			sub:   newSubscriber(),
-		}
-		if d.peripheralConnected != nil {
-			go d.peripheralConnected(p, nil)
-		}
-		p.loop()
-		if d.peripheralDisconnected != nil {
-			d.peripheralDisconnected(p, nil)
-		}
-	}
-	d.hci.AdvertisementHandler = func(pd *linux.PlatData) {
-		a := &Advertisement{}
-		a.unmarshall(pd.Data)
-		a.Connectable = pd.Connectable
-		p := &peripheral{pd: pd, d: d}
-		if d.peripheralDiscovered != nil {
-			pd.Name = a.LocalName
-			d.peripheralDiscovered(p, a, int(pd.RSSI))
-		}
-	}
+	go d.acceptLoop()
+
+	// Register our own advertising report handler.
+	d.hci.SetSubeventHandler(
+		evt.LEAdvertisingReportEvent{}.SubCode(),
+		bt.HandlerFunc(d.handleLEAdvertisingReport))
 	d.state = StatePoweredOn
 	d.stateChanged = f
 	go d.stateChanged(d, d.state)
+	return nil
+}
+
+func (d *device) handleLEAdvertisingReport(b []byte) {
+	if d.peripheralDiscovered == nil {
+		return
+	}
+	e := &leAdvertisingReportEP{}
+	if err := e.Unmarshal(b); err != nil {
+		return
+	}
+
+	for _, r := range e.Reports {
+		adv := &Advertisement{}
+		adv.unmarshall(r.Data)
+		adv.Connectable = r.EventType&0x01 == 0x01
+
+		a := r.Address
+		p := &peripheral{
+			d:         d,
+			adv:       adv,
+			advReport: &r,
+			addr:      []byte{a[5], a[4], a[3], a[2], a[1], a[0]},
+		}
+		go d.peripheralDiscovered(p, adv, r.RSSI)
+	}
+}
+
+type advertisingReport struct {
+	EventType   uint8
+	AddressType uint8
+	Address     [6]byte
+	Data        []byte
+	RSSI        int
+}
+
+type leAdvertisingReportEP struct {
+	SubeventCode uint8
+	Reports      []advertisingReport
+}
+
+// Unmarshal de-serializes the binary data and stores the result in the receiver.
+func (e *leAdvertisingReportEP) Unmarshal(b []byte) error {
+	e.SubeventCode, b = b[0], b[1:]
+	n, b := int(b[0]), b[1:]
+
+	e.Reports = make([]advertisingReport, n)
+	for i := range e.Reports {
+		r := &e.Reports[i]
+		r.EventType = b[0]
+		r.AddressType = b[1]
+		copy(r.Address[:], b[2:8])
+		dlen := int(b[8])
+		r.Data = make([]byte, dlen)
+		copy(r.Data, b[9:9+dlen])
+		r.RSSI = int(b[9+dlen])
+		b = b[10+dlen:]
+	}
 	return nil
 }
 
@@ -139,11 +218,8 @@ func (d *device) Advertise(a *AdvPacket) error {
 		AdvertisingData:       a.Bytes(),
 	}
 
-	if err := d.update(); err != nil {
-		return err
-	}
-
-	return d.hci.SetAdvertiseEnable(true)
+	d.hci.Send(&cmd.LESetAdvertiseEnable{AdvertisingEnable: 1}, nil)
+	return nil
 }
 
 func (d *device) AdvertiseNameAndServices(name string, uu []UUID) error {
@@ -178,7 +254,7 @@ func (d *device) AdvertiseIBeacon(u UUID, major, minor uint16, pwr int8) error {
 	b := make([]byte, 23)
 	b[0] = 0x02                               // Data type: iBeacon
 	b[1] = 0x15                               // Data length: 21 bytes
-	copy(b[2:], reverse(u.b))                 // Big endian
+	copy(b[2:], reverse(u))                   // Big endian
 	binary.BigEndian.PutUint16(b[18:], major) // Big endian
 	binary.BigEndian.PutUint16(b[20:], minor) // Big endian
 	b[22] = uint8(pwr)                        // Measured Tx Power
@@ -186,49 +262,29 @@ func (d *device) AdvertiseIBeacon(u UUID, major, minor uint16, pwr int8) error {
 }
 
 func (d *device) StopAdvertising() error {
-	return d.hci.SetAdvertiseEnable(false)
+	return d.hci.Send(&cmd.LESetAdvertiseEnable{AdvertisingEnable: 0}, nil)
 }
 
 func (d *device) Scan(ss []UUID, dup bool) {
-	// TODO: filter
-	d.hci.SetScanEnable(true, dup)
+	d.hci.Send(&cmd.LESetScanEnable{LEScanEnable: 1}, nil)
 }
 
 func (d *device) StopScanning() {
-	d.hci.SetScanEnable(false, true)
+	d.hci.Send(&cmd.LESetScanEnable{LEScanEnable: 0}, nil)
 }
 
 func (d *device) Connect(p Peripheral) {
-	d.hci.Connect(p.(*peripheral).pd)
+	pp := p.(*peripheral)
+	cmd := *d.connParam
+	cmd.PeerAddressType = pp.advReport.AddressType // public or random
+	cmd.PeerAddress = pp.advReport.Address         //
+	d.hci.Send(&cmd, nil)
 }
 
 func (d *device) CancelConnection(p Peripheral) {
-	d.hci.CancelConnection(p.(*peripheral).pd)
-}
-
-func (d *device) SendHCIRawCommand(c cmd.CmdParam) ([]byte, error) {
-	return d.hci.SendRawCommand(c)
-}
-
-// Flush pending advertising settings to the device.
-func (d *device) update() error {
-	if d.advParam != nil {
-		if err := d.hci.SendCmdWithAdvOff(d.advParam); err != nil {
-			return err
-		}
-		d.advParam = nil
-	}
-	if d.scanResp != nil {
-		if err := d.hci.SendCmdWithAdvOff(d.scanResp); err != nil {
-			return err
-		}
-		d.scanResp = nil
-	}
-	if d.advData != nil {
-		if err := d.hci.SendCmdWithAdvOff(d.advData); err != nil {
-			return err
-		}
-		d.advData = nil
-	}
-	return nil
+	pp := p.(*peripheral)
+	d.hci.Send(&cmd.Disconnect{
+		ConnectionHandle: pp.c.conn.Parameters().ConnectionHandle,
+		Reason:           0x13,
+	}, nil)
 }
