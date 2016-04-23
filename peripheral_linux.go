@@ -29,6 +29,7 @@ type peripheral struct {
 	mtu uint16
 	l2c io.ReadWriteCloser
 
+	lastop byte
 	outreqc chan message
 	inresc  chan []byte
 	quitc   chan struct{}
@@ -381,38 +382,46 @@ func (p *peripheral) loop() {
 		for {
 			select {
 			case poutreq := <- p.outreqc:
+				p.lastop = poutreq.op
 				p.l2c.Write(poutreq.b)
                         case inres := <- inresc:
-				p.inresc <- inres
+				if (attRspFor[p.lastop] == inres[0] || 
+				    attOpError == inres[0]) {
+					p.inresc <- inres
+				} else {
+					log.Printf("unexpected operation code 0x%02x", inres[0])
+				}
 			case inreq := <- inreqc:
 				var resp []byte
 				switch reqType, req := inreq[0], inreq[1:]; reqType {
 				case attOpMtuReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpFindInfoReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpFindByTypeValueReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpReadByTypeReq:
 					resp = p.handleReadByType(req)
 				case attOpReadReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpReadBlobReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpReadByGroupReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
-				case attOpWriteReq, attOpWriteCmd:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
+				case attOpWriteReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
+				case attOpWriteCmd:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpReadMultiReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpPrepWriteReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpExecWriteReq:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				case attOpSignedWriteCmd:
-					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp) // TODO
 				default:
-					log.Printf("unexpected request 0x%02x", reqType)
+					log.Printf("unexpected operation code 0x%02x", reqType)
 					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
 				}
 				if resp != nil {
