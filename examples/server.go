@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/currantlabs/gatt"
-	"github.com/currantlabs/gatt/examples/option"
-	"github.com/currantlabs/gatt/examples/service"
+	"github.com/potix/gatt"
+	"github.com/potix/gatt/examples/option"
+	"github.com/potix/gatt/examples/service"
 )
 
 func main() {

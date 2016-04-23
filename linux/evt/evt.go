@@ -1,11 +1,12 @@
 package evt
 
 import (
+        "fmt"
 	"bytes"
 	"encoding/binary"
 	"errors"
 
-	"github.com/currantlabs/gatt/linux/util"
+	"github.com/potix/gatt/linux/util"
 )
 
 type EventHandler interface {
@@ -46,7 +47,7 @@ func (e *Evt) Dispatch(b []byte) error {
 	return nil
 }
 
-func (e *Evt) trace(fmt string, v ...interface{}) {}
+func (e *Evt) trace(format string, v ...interface{}) { fmt.Printf(format, v...) }
 
 const (
 	InquiryComplete                              = 0x01 // Inquiry Complete

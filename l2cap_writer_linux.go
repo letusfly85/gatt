@@ -1,5 +1,6 @@
 package gatt
 
+import "fmt"
 import "encoding/binary"
 
 // l2capWriter helps create l2cap responses.
@@ -40,6 +41,8 @@ func (w *l2capWriter) Commit() bool {
 		panic("l2capWriter: commit without starting a chunk")
 	}
 	var success bool
+// === debug ====
+fmt.Printf("%d <-> %d", len(w.b)+len(w.chunk), w.mtu)
 	if len(w.b)+len(w.chunk) <= w.mtu {
 		success = true
 		w.b = append(w.b, w.chunk...)

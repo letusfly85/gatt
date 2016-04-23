@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"net"
 
-	"github.com/currantlabs/gatt/linux"
-	"github.com/currantlabs/gatt/linux/cmd"
+	"github.com/potix/gatt/linux"
+	"github.com/potix/gatt/linux/cmd"
 )
 
 type device struct {
@@ -77,12 +77,14 @@ func (d *device) Init(f func(Device, State)) error {
 	}
 	d.hci.AcceptSlaveHandler = func(pd *linux.PlatData) {
 		p := &peripheral{
-			d:     d,
-			pd:    pd,
-			l2c:   pd.Conn,
-			reqc:  make(chan message),
-			quitc: make(chan struct{}),
-			sub:   newSubscriber(),
+			d:       d,
+			pd:      pd,
+			l2c:     pd.Conn,
+			outreqc: make(chan message),
+			inresc:  make(chan []byte),
+			quitc:   make(chan struct{}),
+			sub:     newSubscriber(),
+			mtu:     23,
 		}
 		if d.peripheralConnected != nil {
 			go d.peripheralConnected(p, nil)

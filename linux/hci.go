@@ -6,9 +6,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/currantlabs/gatt/linux/cmd"
-	"github.com/currantlabs/gatt/linux/evt"
-	"github.com/currantlabs/gatt/linux/util"
+	"github.com/potix/gatt/linux/cmd"
+	"github.com/potix/gatt/linux/evt"
+	"github.com/potix/gatt/linux/util"
 )
 
 type HCI struct {
@@ -169,6 +169,9 @@ func (h *HCI) mainLoop() {
 	for {
 		b := h.pool.Get()
 		n, err := h.d.Read(b)
+//===== debug =====
+fmt.Printf("read %d byte =====>\n", n)
+fmt.Println(b[:n])
 		if err != nil {
 			fmt.Sprintf("mainloop err: %v\n", err)
 			return
@@ -188,13 +191,21 @@ func (h *HCI) handlePacket(buf []byte, n int) {
 	handled := true
 	switch t {
 	case typCommandPkt:
+//===== debug =====
+fmt.Printf("type command\n")
 		op := uint16(b[0]) | uint16(b[1])<<8
 		log.Printf("unmanaged cmd: opcode (%04x) [ % X ]\n", op, b)
 	case typACLDataPkt:
+//===== debug =====
+fmt.Printf("type acl data\n")
 		err = h.handleL2CAP(b)
 	case typSCODataPkt:
+//===== debug =====
+fmt.Printf("type sco data\n")
 		err = fmt.Errorf("SCO packet not supported")
 	case typEventPkt:
+//===== debug =====
+fmt.Printf("type event\n")
 		handled = false
 		go func() {
 			err := h.e.Dispatch(b)
@@ -311,6 +322,10 @@ func (h *HCI) handleConnection(b []byte) {
 	if err := ep.Unmarshal(b); err != nil {
 		return // FIXME
 	}
+// ===== debug ===== */
+fmt.Println("=== new Connwction ===")
+fmt.Println(b)
+fmt.Println(ep)
 	hh := ep.ConnectionHandle
 	c := newConn(h, hh)
 	h.connsmu.Lock()

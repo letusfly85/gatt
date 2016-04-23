@@ -10,7 +10,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/currantlabs/gatt/linux"
+	"github.com/potix/gatt/linux"
 )
 
 type peripheral struct {
@@ -29,16 +29,19 @@ type peripheral struct {
 	mtu uint16
 	l2c io.ReadWriteCloser
 
-	reqc  chan message
-	quitc chan struct{}
+	outreqc chan message
+	inresc  chan []byte
+	quitc   chan struct{}
 
 	pd *linux.PlatData // platform specific data
 }
 
 func (p *peripheral) Device() Device       { return p.d }
 func (p *peripheral) ID() string           { return strings.ToUpper(net.HardwareAddr(p.pd.Address[:]).String()) }
+func (p *peripheral) MTU() int             { return int(p.mtu) }
 func (p *peripheral) Name() string         { return p.pd.Name }
 func (p *peripheral) Services() []*Service { return p.svcs }
+func (p *peripheral) Close() error	   { return nil }
 
 func finish(op byte, h uint16, b []byte) bool {
 	done := b[0] == attOpError && b[1] == op && b[2] == byte(h) && b[3] == byte(h>>8)
@@ -356,41 +359,65 @@ func searchService(ss []*Service, start, end uint16) *Service {
 type message struct {
 	op   byte
 	b    []byte
-	rspc chan []byte
 }
 
 func (p *peripheral) sendCmd(op byte, b []byte) {
-	p.reqc <- message{op: op, b: b}
+	p.outreqc <- message{op: op, b: b}
 }
 
 func (p *peripheral) sendReq(op byte, b []byte) []byte {
-	m := message{op: op, b: b, rspc: make(chan []byte)}
-	p.reqc <- m
-	return <-m.rspc
+	m := message{op: op, b: b}
+	p.outreqc <- m
+	return <- p.inresc
 }
 
 func (p *peripheral) loop() {
 	// Serialize the request.
-	rspc := make(chan []byte)
+	inreqc := make(chan []byte)
+	inresc := make(chan []byte)
 
 	// Dequeue request loop
 	go func() {
 		for {
 			select {
-			case req := <-p.reqc:
-				p.l2c.Write(req.b)
-				if req.rspc == nil {
-					break
-				}
-				r := <-rspc
-				switch reqOp, rspOp := req.b[0], r[0]; {
-				case rspOp == attRspFor[reqOp]:
-				case rspOp == attOpError && r[1] == reqOp:
+			case poutreq := <- p.outreqc:
+				p.l2c.Write(poutreq.b)
+                        case inres := <- inresc:
+				p.inresc <- inres
+			case inreq := <- inreqc:
+				var resp []byte
+				switch reqType, req := inreq[0], inreq[1:]; reqType {
+				case attOpMtuReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpFindInfoReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpFindByTypeValueReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpReadByTypeReq:
+					resp = p.handleReadByType(req)
+				case attOpReadReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpReadBlobReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpReadByGroupReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpWriteReq, attOpWriteCmd:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpReadMultiReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpPrepWriteReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpExecWriteReq:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
+				case attOpSignedWriteCmd:
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
 				default:
-					log.Printf("Request 0x%02x got a mismatched response: 0x%02x", reqOp, rspOp)
-					// FIXME: terminate the connection?
+					log.Printf("unexpected request 0x%02x", reqType)
+					resp = attErrorRsp(reqType, 0x0000, attEcodeReqNotSupp)
 				}
-				req.rspc <- r
+				if resp != nil {
+					p.l2c.Write(resp)
+				}
 			case <-p.quitc:
 				return
 			}
@@ -412,25 +439,32 @@ func (p *peripheral) loop() {
 		b := make([]byte, n)
 		copy(b, buf)
 
-		if (b[0] != attOpHandleNotify) && (b[0] != attOpHandleInd) {
-			rspc <- b
-			continue
-		}
-
-		h := binary.LittleEndian.Uint16(b[1:3])
-		f := p.sub.fn(h)
-		if f == nil {
-			log.Printf("notified by unsubscribed handle")
-			// FIXME: terminate the connection?
+		_, isinres := attReqFor[b[0]]
+		_, isinreq := attRspFor[b[0]]
+		if (isinreq || b[0] == attOpWriteCmd || b[0] == attOpSignedWriteCmd) {
+			// request or command from periferal
+			inreqc <- b 
+		} else if (b[0] == attOpHandleNotify || b[0] == attOpHandleInd) {
+			// indication or notification from periferal
+			h := binary.LittleEndian.Uint16(b[1:3])
+			f := p.sub.fn(h)
+			if f == nil { 
+				log.Printf("notified by unsubscribed handle")
+				// FIXME: terminate the connection?
+			} else {
+				go f(b[3:], nil)
+			}
+			if b[0] == attOpHandleInd {
+				// write aknowledgement for indication
+				p.l2c.Write([]byte{attOpHandleCnf})
+			}
+		} else if (isinres || b[0] == attOpError) {
+			// error or response from periferal
+			inresc <- b
 		} else {
-			go f(b[3:], nil)
+			// unexpected operation type
+			log.Printf("unexpected operation code 0x%02x", b[0])
 		}
-
-		if b[0] == attOpHandleInd {
-			// write aknowledgement for indication
-			p.l2c.Write([]byte{attOpHandleCnf})
-		}
-
 	}
 }
 
@@ -447,4 +481,56 @@ func (p *peripheral) SetMTU(mtu uint16) error {
 	}
 	p.mtu = mtu
 	return nil
+}
+
+// REQ: ReadByType(0x08), StartHandle, EndHandle, Type(UUID)
+// RSP: ReadByType(0x09), LenOfEachDataField, DataField, DataField, ...
+func (p *peripheral) handleReadByType(b []byte) []byte {
+        start, end := readHandleRange(b[:4])
+        t := UUID{b[4:]}
+
+        w := newL2capWriter(p.mtu)
+        w.WriteByteFit(attOpReadByTypeRsp)
+        uuidLen := -1
+        for _, a := range p.d.attrs.Subrange(start, end) {
+                if !a.typ.Equal(t) {
+                        continue
+                }
+                if (a.secure&CharRead) != 0 {
+                        return attErrorRsp(attOpReadByTypeReq, start, attEcodeAuthentication)
+                }
+                v := a.value
+                if v == nil {
+                        rsp := newResponseWriter(int(p.mtu - 1))
+                        req := &ReadRequest{
+                                Request: Request{Central: p},
+                                Cap:     int(p.mtu - 1),
+                                Offset:  0,
+                        }
+                        if c, ok := a.pvt.(*Characteristic); ok {
+                                c.rhandler.ServeRead(rsp, req)
+                        } else if d, ok := a.pvt.(*Descriptor); ok {
+                                d.rhandler.ServeRead(rsp, req)
+                        }
+                        v = rsp.bytes()
+                }
+                if uuidLen == -1 {
+                        uuidLen = len(v)
+                        w.WriteByteFit(byte(uuidLen) + 2)
+                }
+                if len(v) != uuidLen {
+                        break
+                }
+                w.Chunk()
+                w.WriteUint16Fit(a.h)
+                w.WriteFit(v)
+                if ok := w.Commit(); !ok {
+			log.Printf("L2capWriter faied in commit")
+                        break
+                }
+        }
+        if uuidLen == -1 {
+                return attErrorRsp(attOpReadByTypeReq, start, attEcodeAttrNotFound)
+        }
+	return w.Bytes()
 }

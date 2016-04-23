@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/currantlabs/gatt"
-	"github.com/currantlabs/gatt/examples/option"
+	"github.com/potix/gatt"
+	"github.com/potix/gatt/examples/option"
 )
 
 var done = make(chan struct{})

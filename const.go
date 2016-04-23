@@ -123,6 +123,22 @@ func attErrorRsp(op byte, h uint16, s attEcode) []byte {
 	return attErr{opcode: op, attr: h, status: s}.Marshal()
 }
 
+// attReqFor maps from attresponse 
+// codes to att request codes.
+var attReqFor = map[byte]byte{
+	attOpMtuRsp:             attOpMtuReq,
+	attOpFindInfoRsp:        attOpFindInfoReq,
+	attOpFindByTypeValueRsp: attOpFindByTypeValueReq,
+	attOpReadByTypeRsp:      attOpReadByTypeReq,
+	attOpReadRsp:            attOpReadReq,
+	attOpReadBlobRsp:        attOpReadBlobReq,
+	attOpReadMultiRsp:       attOpReadMultiReq,
+	attOpReadByGroupRsp:     attOpReadByGroupReq,
+	attOpWriteRsp:           attOpWriteReq,
+	attOpPrepWriteRsp:       attOpPrepWriteReq,
+	attOpExecWriteRsp:       attOpExecWriteReq,
+}
+
 // attRspFor maps from att request
 // codes to att response codes.
 var attRspFor = map[byte]byte{

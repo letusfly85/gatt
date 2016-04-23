@@ -1,6 +1,6 @@
 package service
 
-import "github.com/currantlabs/gatt"
+import "github.com/potix/gatt"
 
 var (
 	attrGAPUUID = gatt.UUID16(0x1800)
