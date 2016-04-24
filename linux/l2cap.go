@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
 	"github.com/potix/gatt/linux/cmd"
 )
@@ -34,6 +35,7 @@ type conn struct {
 	hci  *HCI
 	attr uint16
 	aclc chan *aclData
+	cucc chan bool
 }
 
 func newConn(hci *HCI, hh uint16) *conn {
@@ -41,6 +43,7 @@ func newConn(hci *HCI, hh uint16) *conn {
 		hci:  hci,
 		attr: hh,
 		aclc: make(chan *aclData),
+		cucc: make(chan bool),
 	}
 }
 
@@ -149,31 +152,127 @@ func (c *conn) Close() error {
 }
 
 // Signal Packets
-// 0x00 Reserved								Any
-// 0x01 Command reject							0x0001 and 0x0005
-// 0x02 Connection request						0x0001
-// 0x03 Connection response 					0x0001
-// 0x04 Configure request						0x0001
-// 0x05 Configure response						0x0001
-// 0x06 Disconnection request					0x0001 and 0x0005
-// 0x07 Disconnection response					0x0001 and 0x0005
-// 0x08 Echo request							0x0001
-// 0x09 Echo response							0x0001
-// 0x0A Information request						0x0001
-// 0x0B Information response					0x0001
-// 0x0C Create Channel request					0x0001
-// 0x0D Create Channel response					0x0001
-// 0x0E Move Channel request					0x0001
-// 0x0F Move Channel response					0x0001
-// 0x10 Move Channel Confirmation				0x0001
-// 0x11 Move Channel Confirmation response		0x0001
-// 0x12 Connection Parameter Update request		0x0005
+// 0x00 Reserved				Any
+// 0x01 Command reject				0x0001 and 0x0005
+// 0x02 Connection request			0x0001
+// 0x03 Connection response 			0x0001
+// 0x04 Configure request			0x0001
+// 0x05 Configure response			0x0001
+// 0x06 Disconnection request			0x0001 and 0x0005
+// 0x07 Disconnection response			0x0001 and 0x0005
+// 0x08 Echo request				0x0001
+// 0x09 Echo response				0x0001
+// 0x0A Information request			0x0001
+// 0x0B Information response			0x0001
+// 0x0C Create Channel request			0x0001
+// 0x0D Create Channel response			0x0001
+// 0x0E Move Channel request			0x0001
+// 0x0F Move Channel response			0x0001
+// 0x10 Move Channel Confirmation		0x0001
+// 0x11 Move Channel Confirmation response	0x0001
+// 0x12 Connection Parameter Update request	0x0005
 // 0x13 Connection Parameter Update response	0x0005
-// 0x14 LE Credit Based Connection request		0x0005
-// 0x15 LE Credit Based Connection response		0x0005
-// 0x16 LE Flow Control Credit					0x0005
+// 0x14 LE Credit Based Connection request	0x0005
+// 0x15 LE Credit Based Connection response	0x0005
+// 0x16 LE Flow Control Credit			0x0005
 func (c *conn) handleSignal(a *aclData) error {
-	log.Printf("ignore l2cap signal:[ % X ]", a.b)
-	// FIXME: handle LE signaling channel (CID: 5)
-	return nil
+	if len(a.b) < 8 {
+		return fmt.Errorf("too short l2cap signal packet (len = %d)", len(a.b))
+	}
+        reqcode := a.b[4]
+        reqid :=  a.b[5]
+        reqlen := uint16(a.b[6]) | (uint16(a.b[7]) << 8)
+	if len(a.b[8:]) != int(reqlen)  {
+		return fmt.Errorf("l2cap signal packet length is mismatch (len: %d != &d)", len(a.b[8:]), reqlen)
+	}
+        resrejun := []byte { 0x01, reqid, 0x02, 0x00, 0x00, 0x00 }
+	switch reqcode {
+        case 0x06:
+		if len(a.b) < 12 {
+			return fmt.Errorf("too short l2cap signal Connection Parameter Update request (len = %d)", len(a.b))
+		}
+		dcid := uint16(a.b[8]) | (uint16(a.b[9]) << 8)
+		scid := uint16(a.b[10]) | (uint16(a.b[11]) << 8)
+		log.Printf("Disconnection request: dcid = %d, scid = %d", dcid, scid )
+		// not supported // TODO
+		c.write(0x05, resrejun) // TODO
+        case 0x12:
+		if len(a.b) < 16 {
+			return fmt.Errorf("too short l2cap signal Connection Parameter Update request (len = %d)", len(a.b))
+		}
+		imin := uint16(a.b[8]) | (uint16(a.b[9]) << 8)
+		imax := uint16(a.b[10]) | (uint16(a.b[11]) << 8)
+		slvlate := uint16(a.b[12]) | (uint16(a.b[13]) << 8)
+		tomulti := uint16(a.b[14]) | (uint16(a.b[15]) << 8)
+		log.Printf("Connection Parameter Update request: imin = %d, imax = %d, slvlate = %d, tomulti = %d",
+		    imin, imax, slvlate, tomulti)
+		// HCI_LE_Connection_Update command
+		go func() {
+			resb := make([]byte, 0, 32)
+// ==== debug ====
+fmt.Println("try LEConnUpdate command ")
+			err, _ := c.hci.c.Send(cmd.LEConnUpdate {
+				ConnectionHandle : c.attr,
+				ConnIntervalMin : imin,
+				ConnIntervalMax : imax,
+				ConnLatency : slvlate,
+				SupervisionTimeout : tomulti,
+				MinimumCELength : 0x0000,
+				MaximumCELength : 0x0000,
+		})
+// ==== debug ====
+fmt.Println("LEConnUpdate command done ")
+			if err != nil {
+				resb = append(resb, 0x13)
+				resb = append(resb, reqid)
+				resb = append(resb, 0x02, 0x00)
+				resb = append(resb, 0x01, 0x00)
+				c.write(0x05, resb[:6])
+				return
+			}
+			select {
+			case <-c.cucc:
+				resb = append(resb, 0x13)
+				resb = append(resb, reqid)
+				resb = append(resb, 0x02, 0x00)
+				resb = append(resb, 0x00, 0x00)
+				c.write(0x05, resb[:6])
+// ==== debug ====
+fmt.Println("LEConnUpdate success")
+			case <- time.After(5 * time.Second):
+				resb = append(resb, 0x13)
+				resb = append(resb, reqid)
+				resb = append(resb, 0x02, 0x00)
+				resb = append(resb, 0x01, 0x00)
+				c.write(0x05, resb[:6])
+				log.Printf("failed in connection parameter update request (timeout)")
+			}
+		}()
+        case 0x14:
+		if len(a.b) < 18 {
+			return fmt.Errorf("too short l2cap signal LE Flow Control Credit (len = %d)", len(a.b))
+		}
+		lepsm := uint16(a.b[8]) | (uint16(a.b[9]) << 8)
+		scid := uint16(a.b[10]) | (uint16(a.b[11]) << 8)
+		mtu := uint16(a.b[12]) | (uint16(a.b[13]) << 8)
+		mps := uint16(a.b[14]) | (uint16(a.b[15]) << 8)
+		initcredits := uint16(a.b[16]) | (uint16(a.b[17]) << 8)
+		log.Printf("LE Credit Based Connection request: lepsm = %d, scid = %d, mtu = %d, mps = %d, initcredits = %d",
+		    lepsm, scid, mtu, mps, initcredits)
+		// not supported // TODO
+		c.write(0x05, resrejun) // TODO
+        case 0x16:
+		if len(a.b) < 12 {
+			return fmt.Errorf("too short l2cap signal LE Flow Control Credit (len = %d)", len(a.b))
+		}
+		cid := uint16(a.b[8]) | (uint16(a.b[9]) << 8)
+		credits := uint16(a.b[10]) | (uint16(a.b[11]) << 8)
+		log.Printf("LE Flow Control Credit: cid = %d, credits = %d", cid, credits)
+		// not supported // TODO
+		c.write(0x05, resrejun) // TODO
+	default:
+		return fmt.Errorf("unexpecteda l2cap ignal (code = 0x%02x)", reqcode)
+        }
+
+        return nil
 }

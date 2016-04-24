@@ -355,6 +355,25 @@ fmt.Println(ep)
 	h.AcceptSlaveHandler(pd)
 }
 
+func (h *HCI) handleConnectionUpdateComplete(b []byte) {
+	ep := &evt.LEConnectionUpdateCompleteEP{}
+	if err := ep.Unmarshal(b); err != nil {
+		log.Printf("Unmarshal error LEConnectionUpdateComplete event")
+		// c.cucc channel timeout
+		return
+	}
+	hh := ep.ConnectionHandle
+	h.connsmu.Lock()
+	defer h.connsmu.Unlock()
+	c, found := h.conns[hh]
+	if !found {
+		log.Printf("not found l2cap connection (handle = 0x%04X)", hh)
+		// c.cucc channel timeout
+		return
+	}
+	c.cucc <- true
+}
+
 func (h *HCI) handleDisconnectionComplete(b []byte) error {
 	ep := &evt.DisconnectionCompleteEP{}
 	if err := ep.Unmarshal(b); err != nil {
@@ -381,7 +400,7 @@ func (h *HCI) handleLEMeta(b []byte) error {
 	case evt.LEConnectionComplete:
 		go h.handleConnection(b)
 	case evt.LEConnectionUpdateComplete:
-		// anything to do here?
+		go h.handleConnectionUpdateComplete(b)
 	case evt.LEAdvertisingReport:
 		go h.handleAdvertisement(b)
 	// case evt.LEReadRemoteUsedFeaturesComplete:

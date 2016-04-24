@@ -73,16 +73,22 @@ func (c *Cmd) HandleStatus(b []byte) error {
 
 func (c *Cmd) Send(cp CmdParam) ([]byte, error) {
 	op := cp.Opcode()
+// === debug ===
+fmt.Printf("try cmd 0x%02x\n", op)
 	p := &cmdPkt{op: op, cp: cp, done: make(chan []byte)}
 	raw := p.Marshal()
-
 	c.sent = append(c.sent, p)
 	if n, err := c.dev.Write(raw); err != nil {
 		return nil, err
 	} else if n != len(raw) {
 		return nil, errors.New("Failed to send whole Cmd pkt to HCI socket")
 	}
-	return <-p.done, nil
+// === debug ===
+fmt.Println("sent cmd")
+	b := <-p.done
+// === debug ===
+fmt.Println("cmd done")
+	return b, nil
 }
 
 func (c *Cmd) SendAndCheckResp(cp CmdParam, exp []byte) error {
@@ -105,9 +111,13 @@ func (c *Cmd) processCmdEvents() {
 	for {
 		select {
 		case status := <-c.statusc:
+// === debug ===
+fmt.Println("status cmd event")
 			found := false
 			for i, p := range c.sent {
 				if uint16(p.op) == status.CommandOpcode {
+// === debug ===
+fmt.Printf("match 0x%02x = 0x%02x\n", uint16(p.op), status.CommandOpcode)
 					found = true
 					c.sent = append(c.sent[:i], c.sent[i+1:]...)
 					close(p.done)
@@ -118,9 +128,13 @@ func (c *Cmd) processCmdEvents() {
 				log.Printf("Can't find the cmdPkt for this CommandStatusEP: %v", status)
 			}
 		case comp := <-c.compc:
+// === debug ===
+fmt.Println("complete cmd event")
 			found := false
 			for i, p := range c.sent {
 				if uint16(p.op) == comp.CommandOPCode {
+// === debug ===
+fmt.Printf("match 0x%02x = 0x%02x\n", p.op, comp.CommandOPCode)
 					found = true
 					c.sent = append(c.sent[:i], c.sent[i+1:]...)
 					p.done <- comp.ReturnParameters
