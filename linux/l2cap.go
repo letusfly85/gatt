@@ -90,9 +90,9 @@ func (c *conn) write(cid int, b []byte) (int, error) {
 
 		// make sure we don't send more buffers than the controller can handdle
 		c.hci.bufCnt <- struct{}{}
-//// ===== debug =====
-//fmt.Printf("<===== write %d byte", 5+dlen)
-//fmt.Println(w[:5+dlen])
+// ===== debug =====
+fmt.Printf("<===== write %d byte", 5+dlen)
+fmt.Println(w[:5+dlen])
 		c.hci.d.Write(w[:5+dlen])
 		w = w[dlen:] // advance the pointer to the next segment, if any.
 		flag = 0x10  // the rest of iterations attr continued segments, if any.

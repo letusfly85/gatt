@@ -363,6 +363,7 @@ type message struct {
 }
 
 func (p *peripheral) sendCmd(op byte, b []byte) {
+	fmt.Printf("sendCmd op = %v, data= %v\n", op, b)
 	p.outreqc <- message{op: op, b: b}
 }
 
