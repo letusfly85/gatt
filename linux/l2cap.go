@@ -90,9 +90,9 @@ func (c *conn) write(cid int, b []byte) (int, error) {
 
 		// make sure we don't send more buffers than the controller can handdle
 		c.hci.bufCnt <- struct{}{}
-// ===== debug =====
-fmt.Printf("<===== write %d byte", 5+dlen)
-fmt.Println(w[:5+dlen])
+//// ===== debug =====
+//fmt.Printf("<===== write %d byte", 5+dlen)
+//fmt.Println(w[:5+dlen])
 		c.hci.d.Write(w[:5+dlen])
 		w = w[dlen:] // advance the pointer to the next segment, if any.
 		flag = 0x10  // the rest of iterations attr continued segments, if any.
@@ -111,9 +111,9 @@ func (c *conn) Read(b []byte) (int, error) {
 	if tlen > len(b) {
 		return 0, io.ErrShortBuffer
 	}
-// ==== debug ===
-fmt.Println("=== l2cap header ===")
-fmt.Println(a.b[:4])
+//// ==== debug ===
+//fmt.Println("=== l2cap header ===")
+//fmt.Println(a.b[:4])
 	d := a.b[4:] // skip l2cap header
 	copy(b, d)
 	n := len(d)
@@ -209,8 +209,8 @@ func (c *conn) handleSignal(a *aclData) error {
 		// HCI_LE_Connection_Update command
 		go func() {
 			resb := make([]byte, 0, 32)
-// ==== debug ====
-fmt.Println("try LEConnUpdate command ")
+//// ==== debug ====
+//fmt.Println("try LEConnUpdate command ")
 			err, _ := c.hci.c.Send(cmd.LEConnUpdate {
 				ConnectionHandle : c.attr,
 				ConnIntervalMin : imin,
@@ -220,8 +220,8 @@ fmt.Println("try LEConnUpdate command ")
 				MinimumCELength : 0x0000,
 				MaximumCELength : 0x0000,
 		})
-// ==== debug ====
-fmt.Println("LEConnUpdate command done ")
+//// ==== debug ====
+//fmt.Println("LEConnUpdate command done ")
 			if err != nil {
 				resb = append(resb, 0x13)
 				resb = append(resb, reqid)
@@ -237,8 +237,8 @@ fmt.Println("LEConnUpdate command done ")
 				resb = append(resb, 0x02, 0x00)
 				resb = append(resb, 0x00, 0x00)
 				c.write(0x05, resb[:6])
-// ==== debug ====
-fmt.Println("LEConnUpdate success")
+//// ==== debug ====
+//fmt.Println("LEConnUpdate success")
 			case <- time.After(5 * time.Second):
 				resb = append(resb, 0x13)
 				resb = append(resb, reqid)
