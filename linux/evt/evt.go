@@ -40,10 +40,10 @@ func (e *Evt) Dispatch(b []byte) error {
 	}
 	b = b[2:] // Skip Event Header (uint8 + uint8)
 	if f, found := e.evtHandlers[h.code]; found {
-		e.trace("> HCI Event: %s (0x%02X) plen %d: [ % X ])\n", h.code, uint8(h.code), h.plen, b)
+		//e.trace("> HCI Event: %s (0x%02X) plen %d: [ % X ])\n", h.code, uint8(h.code), h.plen, b)
 		return f.HandleEvent(b)
 	}
-	e.trace("> HCI Event: no handler for %s (0x%02X)\n", h.code, uint8(h.code))
+	//e.trace("> HCI Event: no handler for %s (0x%02X)\n", h.code, uint8(h.code))
 	return nil
 }
 

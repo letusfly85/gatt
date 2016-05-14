@@ -314,7 +314,6 @@ func (p *peripheral) setNotifyValue(c *Characteristic, flag uint16,
 	}
 	ccc := uint16(0)
 	if f != nil {
-fmt.Printf("subscribe %v\n", c.vh)
 		ccc = flag
 		p.sub.subscribe(c.vh, func(b []byte, err error) { f(c, b, err) })
 	}
@@ -324,9 +323,7 @@ fmt.Printf("subscribe %v\n", c.vh)
 	binary.LittleEndian.PutUint16(b[1:3], c.cccd.h)
 	binary.LittleEndian.PutUint16(b[3:5], ccc)
 
-fmt.Printf("try sendreq %v, %v\n", op, b)
 	b = p.sendReq(op, b)
-fmt.Printf("sendreq done\n")
 	b = b[1:]
 	// TODO: error handling
 	if f == nil {
@@ -337,7 +334,6 @@ fmt.Printf("sendreq done\n")
 
 func (p *peripheral) SetNotifyValue(c *Characteristic,
 	f func(*Characteristic, []byte, error)) error {
-fmt.Printf("-SetNotifyValue-\n")
 	return p.setNotifyValue(c, gattCCCNotifyFlag, f)
 }
 
@@ -367,7 +363,8 @@ type message struct {
 }
 
 func (p *peripheral) sendCmd(op byte, b []byte) {
-	fmt.Printf("sendCmd op = %v, data= %v\n", op, b)
+////=== debug ===
+//fmt.Printf("sendCmd op = %v, data= %v\n", op, b)
 	p.outreqc <- message{op: op, b: b}
 }
 

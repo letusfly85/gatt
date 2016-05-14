@@ -169,9 +169,9 @@ func (h *HCI) mainLoop() {
 	for {
 		b := h.pool.Get()
 		n, err := h.d.Read(b)
-//===== debug =====
-fmt.Printf("read %d byte =====>\n", n)
-fmt.Println(b[:n])
+////===== debug =====
+//fmt.Printf("read %d byte =====>\n", n)
+//fmt.Println(b[:n])
 		if err != nil {
 			fmt.Sprintf("mainloop err: %v\n", err)
 			return
